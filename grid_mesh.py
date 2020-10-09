@@ -11,11 +11,14 @@ import numpy as np
 
 
 class Config:
-    def __init__(self, N, d, dx, npt, rho = 1):
+    def __init__(self, N, d, dx, npt, T, num_tpt,rho = 1):
         self.N = N
         self.d = d
         self.dx = dx
         self.npt = npt
+        self.T = T
+        self.num_tpt = num_tpt
+        self.dt = T/num_tpt
         self.rho = rho
 
 def create_grid(config):
@@ -58,15 +61,4 @@ def incident_element(config, grid, mesh) -> [set]:
     for j in range(mesh.size):
         inci_ele[mesh[j]].add(j)
     return inci_ele
-if __name__ == "__main__":
-    N = 3
-    d = 2
-    dx = 1/(N-1)
-    npt = N*N
-    example_config = Config(N,d,dx,npt)
-    grid = create_grid(example_config)
-    mesh = create_mesh(example_config)
-    #print(grid)
-    print(grid[0,:])
-    print(mesh)
-    print(incident_element(example_config, grid, mesh))
+

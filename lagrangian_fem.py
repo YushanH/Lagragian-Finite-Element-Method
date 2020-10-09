@@ -5,16 +5,18 @@ d = 2
 N = 5
 npt = N*N
 dx = 1/(N-1)
-
-config = grid_mesh.Config(N,d,dx,npt)
+T = 10
+num_tpt = 100
+config = grid_mesh.Config(N,d,dx,npt,T,num_tpt)
 grid = grid_mesh.create_grid(config)
 mesh = grid_mesh.create_mesh(config)
 incident_element = grid_mesh.incident_element(config,grid,mesh)
 
-dirichlet_bc = lambda x,y: x == 0 or x == 1     # fix left and right side
+dirichlet_bc = lambda x,y: x in [0,1] or y in [0,1]    # fix all boundary
+dirichlet_mapping = lambda x,y: (1.2*x, y)
 g = 9.8
 
-efem = elastic.efem(config, grid, mesh)
+efem = elastic.efem(config, grid, mesh, dirichlet_bc, dirichlet_mapping)
 efem.initialize() #volume, Dm, Dminv
 
 
