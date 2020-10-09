@@ -50,11 +50,13 @@ class efem:
                 non_dirichlet_pts.append(i)
         self.dirchlet_pts = dirchlet_pts
         self.non_dirichlet_pts = non_dirichlet_pts
+        self.num_inside_pts = len(self.non_dirichlet_pts)
 
     def map_dirichlet(self):
         for i in self.dirchlet_pts:
             x,y = self.grid[i,:]
             self.deformed_grid[i,:] = self.dirichlet_mapping(x,y)
+
     def initialize_nodalmass(self):
         """grid point i, nodalmass[i] = mass matrix M_ii, after mass lumping"""
         npt = self.config.npt
@@ -66,18 +68,31 @@ class efem:
                 mass = self.vol[e]*rho/3
                 self.nodalmass[self.mesh[(d+1)*e+i]] += mass
 
+        self.M = np.zeros((d*len(self.non_dirichlet_pts),d*len(self.non_dirichlet_pts)))
+        for i in range(self.num_inside_pts):
+            index = self.non_dirichlet_pts[i]
+            for j in range(d):
+                self.M[i+j,i+j] = self.nodalmass[index]
+
     def run(self):
         d = self.config.d
         self.map_dirichlet()
-        num_inside_pts = len(self.non_dirichlet_pts)
+        num_inside_pts = self.num_inside_pts
         phi_0 = np.zeros(d*num_inside_pts)
-        phi = phi_0
         for i in range(num_inside_pts):
-            phi_0[i*d: (i+1)*d] = self.grid[self.dirchlet_pts[i], :]
+            phi_0[i*d: (i+1)*d] = self.deformed_grid[i, :]
+        phi_1 = phi_0
+        phi_2 = phi_0
         for timestep in range(self.config.num_tpt):
-            phi += self.dphi(phi)
-            pass
-    def dphi(self, phi):
+            # given phi_(n-1), phi_n, find phi_(n+1) using newton's method
+            self.advance_one_step(phi_0, phi_1)
+            phi_1, phi_0 = phi_1 + self.dphi(phi_0, phi_1), phi_1
+
+    def advance_one_step(self,phi_0, phi_1):
+        dt = self.config.dt
+        #g = lambda phi: M*phi - 2*M*phi_1 + M*phi_0 - dt*dt*f(phi)
+
+    def dphi(self, phi_0, phi_1):
         return 0
         pass
 
