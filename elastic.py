@@ -5,7 +5,8 @@ class efem:
         self.config = config
         self.grid = grid
         self.mesh = mesh
-        self.calculate_volume()
+        self.initialize()
+        self.initialize_nodalmass()
     def initialize(self):
         N, d, npt = self.config.N, self.config.d, self.config.npt
         num_triangles = self.mesh.size//(d+1)
@@ -13,14 +14,30 @@ class efem:
         self.Dm = np.zeros((num_triangles,d,d))
         self.Dminv = np.zeros((num_triangles, d, d))
         self.vol = np.zeros(num_triangles)
-        for i in range(num_triangles):
-            i0,i1,i2 = self.mesh[(d+1)*i], self.mesh[(d+1)*i+1],self.mesh[(d+1)*i+2]
-            x0 = self.grid[i0,:]
-            x1 = self.grid[i1,:]
-            x2 = self.grid[i2,:]
-            D_m = np.stack((x1-x0,x2-x0)).transpose()
-            self.Dm[i,:,:] = D_m
-            self.Dminv[i,:,:] = np.linalg.inv(D_m)
-            self.vol[i] = (1/math.factorial(d))*abs(np.linalg.det(D_m))
+        for e in range(num_triangles):
+            index_list = []
+            point_list = []
+            vector_list = []
+            for j in range(d+1):
+                index = self.mesh[(d+1)*e+j]
+                index_list.append(index)
+                point_list.append(self.grid[index,:])
+            for j in range(1,d+1):
+                vector_list.append(point_list[j]-point_list[0])
+            D_m = np.stack(vector_list).transpose()
+            self.Dm[e,:,:] = D_m
+            self.Dminv[e,:,:] = np.linalg.inv(D_m)
+            self.vol[e] = (1/math.factorial(d))*abs(np.linalg.det(D_m))
+    def initialize_nodalmass(self):
+        """grid point i, nodalmass[i] = mass matrix M_ii, after mass lumping"""
+        npt = self.config.npt
+        d = self.config.d
+        rho = self.config.rho
+        self.nodalmass = np.zeros(npt)
+        for e in range(self.mesh.size//(d+1)):
+            for i in range(d+1):
+                mass = self.vol[e]*rho/3
+                self.nodalmass[self.mesh[(d+1)*e+i]] += mass
+
 
 

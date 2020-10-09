@@ -4,9 +4,9 @@ import elastic
 """Example 3*3 grid, mesh"""
 #   *-*-*
 #   6 - 7 - 8
-#     /   /
+#   | / | / |
 #   3 - 4 - 5
-#     /   /
+#   | / | / |
 #   0 - 1 - 2
 
 N = 3
@@ -23,4 +23,6 @@ mesh = grid_mesh.create_mesh(config)
 
 efem = elastic.efem(config, grid, mesh)
 # print(efem.Dm)
+# print(efem.Dminv)
 # print(efem.vol)
+print(efem.nodalmass)
