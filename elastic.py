@@ -2,20 +2,25 @@ import numpy as np
 import math
 import sys
 sys.path.append('../')
-# import PyMesh.python.pymesh
+import pymesh
+
 class efem:
     def __init__(self, config, grid, mesh, dirichlet_bc, dirichlet_mapping):
         self.config = config
         self.grid = grid
         self.deformed_grid = grid
         self.mesh = mesh
+        self.faces = np.reshape(mesh, (-1,3))
         self.dirchlet_bc = dirichlet_bc
         self.dirichlet_mapping = dirichlet_mapping
         self.initialize()
         self.initialize_nodalmass()
+        self.grad_N = self.interpolant_gradient()
         # self.dirchlet_pts
         # self.non_dirichlet_pts
         # self.nodalmass
+        # self.M
+        # self.num_inside_pts
     def initialize(self):
         N, d, npt = self.config.N, self.config.d, self.config.npt
         num_triangles = self.mesh.size//(d+1)
@@ -90,13 +95,22 @@ class efem:
 
     def advance_one_step(self,phi_0, phi_1):
         dt = self.config.dt
-        #g = lambda phi: M*phi - 2*M*phi_1 + M*phi_0 - dt*dt*f(phi)
+        g = lambda phi: M*phi - 2*M*phi_1 + M*phi_0 - dt*dt*self.external_force(phi)
 
     def dphi(self, phi_0, phi_1):
         return 0
         pass
 
     def write_obj(self, filename):
-        pass
-
-
+        pymesh.save_mesh(filename, pymesh.form_mesh(self.deformed_grid, self.faces))
+    def external_force(self, phi):
+        d, num_inside_pts = self.config.d, self.num_inside_pts
+        F
+        f = np.zeros(d * num_inside_pts)
+        for i in range(num_inside_pts):
+            for beta in range(d):
+                pass
+    def interpolant_gradient(self):
+        def grad_N(i, alpha, e):
+            pass
+        return grad_N
