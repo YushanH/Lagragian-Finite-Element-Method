@@ -11,7 +11,7 @@ import numpy as np
 
 
 class Config:
-    def __init__(self, N, d, dx, npt, T, num_tpt,rho = 1):
+    def __init__(self, N, d, dx, npt, T, num_tpt,rho = 1, mu = 1, lambd = 1):
         self.N = N
         self.d = d
         self.dx = dx
@@ -20,7 +20,7 @@ class Config:
         self.num_tpt = num_tpt
         self.dt = T/num_tpt
         self.rho = rho
-
+        self.mu, self.lambd = mu, lambd
 def create_grid(config):
     N, d, dx, npt = config.N, config.d, config.dx, config.npt
     grid = np.zeros((npt, d))
