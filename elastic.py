@@ -4,12 +4,13 @@ import pymesh
 import grid_mesh
 from scipy.sparse.linalg import cg
 from cons_model import Corotated
+from GEO import writeGEO
 class efem:
     def __init__(self, config, grid, mesh, dirichlet_bc, dirichlet_mapping):
         self.config = config
-        self.grid = grid
-        self.deformed_grid = grid
-        self.mesh = mesh
+        self.grid = np.copy(grid)
+        self.deformed_grid = np.copy(grid)
+        self.mesh = np.copy(mesh)
         self.incident_element = grid_mesh.incident_element(config, grid, mesh)
         self.faces = np.reshape(mesh, (-1,3))
         self.Ne = mesh.size//3
@@ -73,7 +74,7 @@ class efem:
         for i in self.dirchlet_pts:
             x,y = self.grid[i,:]
             self.deformed_grid[i,:] = self.dirichlet_mapping(x,y)
-        x, y = self.grid[4, :]
+        # x, y = self.grid[4, :]
         # self.deformed_grid[4, :] = [1,0.5]
 
     def initialize_nodalmass(self):
@@ -101,42 +102,61 @@ class efem:
             for alpha in range(d+1):
                 self.grad_N[(d+1)*e+alpha] = self.Dminv[e].transpose().dot(self.canonical_grad_N[alpha])
 
-    def run(self):
+    def run(self, verbose = True):
         d = self.config.d
         num_inside_pts = self.num_inside_pts
-        phi_0 = np.zeros(d*num_inside_pts)
+        phi = np.zeros(d*num_inside_pts)
+        v = np.zeros(d*num_inside_pts)
         for i in range(num_inside_pts):
-            phi_0[i*d: (i+1)*d] = self.deformed_grid[self.non_dirichlet_pts[i], :]
-        phi_1 = phi_0
-        phi_2 = phi_0
+            phi[i*d: (i+1)*d] = self.deformed_grid[self.non_dirichlet_pts[i], :]
         self.deformed_to_obj("frame_1.obj")
+        # solve for phi_1
+
+        # print("Initial BE energy =", self.BE_energy(phi_1, phi_0, v_0))
+        # print("Initial energy =", self.config.dt ** 2 * self.energy())
         for timestep in range(self.config.num_tpt):
             # given phi_(n-1), phi_n, find phi_(n+1) s.t. g(phi_(n+1)) = 0 using newton's method
             # g = lambda phi: self.M.dot(phi) - 2*self.M.dot(phi_1) + self.M.dot(phi_0) - dt*dt*self.external_force(phi)
-            phi_1, phi_0 = self.advance_one_step(phi_0, phi_1), phi_1
-            print(phi_1)
-            self.deformed_to_obj(f"frame_{timestep+2}.obj")
+            phi, v = np.copy(self.advance_one_step(phi, v, verbose))
+            # print(f"phi = {phi}, v = {v}")
 
-    def advance_one_step(self, phi_0, phi_1, tol_newton = 2*10e-6, tol_cg = 10e-4):
+            self.deformed_to_obj(f"frame_{timestep+2}.obj")
+            # self.deformed_to_geo(f"frame_{timestep+2}.vtk")
+
+
+    def advance_one_step(self, phi_prev, v_prev, verbose, tol_newton = 10e-5, tol_cg = 10e-4):
         dt = self.config.dt
-        g = lambda phi: self.M.dot(phi) - 2*self.M.dot(phi_1) + self.M.dot(phi_0) - dt*dt*self.internal_force()
+        tol_newton *= dt**2
+        const = - self.M.dot(phi_prev) - dt*self.M.dot(v_prev)
+        # print(self.deformed_grid)
+        # print(self.internal_force())
+        g = lambda phi: self.M.dot(phi) - dt*dt*self.internal_force() + const
         Dg = lambda phi: self.M - dt*dt*self.Df()
-        phi = phi_1
-        while np.linalg.norm(g(phi)) > tol_newton:
+        phi = np.copy(phi_prev)
+        max_iter = 100
+        iter = 0
+        while np.linalg.norm(g(phi)) > tol_newton and iter < max_iter:
             self.update_phi(phi)
             self.updateDs_F()
             dphi, res = cg(Dg(phi), -g(phi))
             phi += dphi
-            print(phi)
-            print("BE energy =", self.BE_energy(phi, phi_1, phi_0))
-            print("cg residual =", res)
-            print("residual g =", np.linalg.norm(g(phi)), "internal force =", dt * dt * self.internal_force())
-        print("after newton, BE energy =", self.BE_energy(phi, phi_1, phi_0))
-        print("after newton, residual g =", np.linalg.norm(g(phi)))
-        return phi
+
+            iter += 1
+            # print(phi)
+            # print("BE energy =", self.BE_energy(phi, phi_1, phi_0))
+            # print("cg residual =", res)
+            # print("residual g =", np.linalg.norm(g(phi)), "internal force =", dt * dt * self.internal_force())
+        self.update_phi(phi)
+        self.updateDs_F()
+        if verbose:
+            print("after newton, BE energy =", self.BE_energy(phi, phi_prev, v_prev))
+            print("after newton, energy =", self.config.dt**2*self.energy())
+            print("after newton, residual g =", np.linalg.norm(g(phi)))
+        return phi, (phi-phi_prev)/dt
 
     def internal_force(self):
         """assembly external force vector based on current deformed_grid, Ds, F"""
+        """f_int = -grad(e)"""
         d, num_inside_pts = self.config.d, self.num_inside_pts
         f = np.zeros(d * num_inside_pts)
         mu, lambd = self.config.mu, self.config.lambd
@@ -145,14 +165,15 @@ class efem:
             P = model.P()
             for p in range(d + 1):
                 i = self.mesh[(d+1)*e+p]
-                for beta in range(d):
-                    for gamma in range(d):
-                        vectori = self.i_to_vectori[i]
-                        if vectori != None:
-                            f[d*vectori+beta] += -self.vol[e]*P[beta,gamma]*self.grad_N[(d+1)*e+p, gamma]
+                vectori = self.i_to_vectori[i]
+                if vectori != None:
+                    for beta in range(d):
+                        for gamma in range(d):
+                            f[d*vectori+beta] -= self.vol[e]*P[beta,gamma]*self.grad_N[(d+1)*e+p, gamma]
         return f
 
     def Df(self):
+        """Df = grad(f_int) = -Hessian(e)"""
         d, num_inside_pts = self.config.d, self.num_inside_pts
         df_dphi = np.zeros((d * num_inside_pts, d * num_inside_pts))
         mu, lambd = self.config.mu, self.config.lambd
@@ -166,14 +187,14 @@ class efem:
                     mesh_j = (d+1)*e+q
                 # for mesh_j in self.incident_element[i]:
                     j = self.mesh[mesh_j]
-                    for beta in range(d):
-                        for gamma in range(d):
-                            for alpha in range(d):
-                                for epsilon in range(d):
-                                    vectori, vectorj = self.i_to_vectori[i],  self.i_to_vectori[j]
-                                    if vectori != None and vectorj != None:
-                                        df_dphi[vectori*d+beta, vectorj*d+alpha] += \
-                                            -self.vol[e]*dPdF[beta*d+gamma, alpha*d+epsilon]*self.grad_N[mesh_j,epsilon]*self.grad_N[mesh_i,gamma]
+                    vectori, vectorj = self.i_to_vectori[i], self.i_to_vectori[j]
+                    if vectori != None and vectorj != None:
+                        for beta in range(d):
+                            for gamma in range(d):
+                                for alpha in range(d):
+                                    for epsilon in range(d):
+                                        df_dphi[vectori*d+beta, vectorj*d+alpha] -= \
+                                            self.vol[e]*dPdF[beta*d+gamma, alpha*d+epsilon]*self.grad_N[mesh_j,epsilon]*self.grad_N[mesh_i,gamma]
         return df_dphi
 
     def update_phi(self, phi):
@@ -183,14 +204,15 @@ class efem:
             for beta in range(self.config.d):
                 self.deformed_grid[index, beta] = phi[self.config.d*i+beta]
 
-    def BE_energy(self, phi, phi1, phi0):
-        return 1/2*phi.transpose().dot(self.M).dot(phi)+ phi.transpose().dot(-2*self.M.dot(phi1)+self.M.dot(phi0)) + self.config.dt**2*self.energy()
+    def BE_energy(self, phi, phi0, v0):
+        dt = self.config.dt
+        return 1/2*phi.transpose().dot(self.M).dot(phi)- phi.transpose().dot(self.M).dot(phi0+dt*v0) + self.config.dt**2*self.energy()
 
     def energy(self):
         ans = 0
         for e in range(self.Ne):
             model = Corotated(self.config.mu, self.config.lambd, self.F[e,:,:])
-            ans += model.psi()
+            ans += self.vol[e]*model.psi()
         return ans
 
     def updateDs_F(self):
@@ -208,3 +230,7 @@ class efem:
         deformed = np.append(self.deformed_grid, np.zeros((self.config.npt,1)), 1)
 
         pymesh.save_mesh(filename, pymesh.form_mesh(deformed, self.faces))
+
+    def deformed_to_geo(self, filename):
+        deformed = np.append(self.deformed_grid, np.zeros((self.config.npt,1)), 1)
+        writeGEO(deformed, self.mesh, filename)
