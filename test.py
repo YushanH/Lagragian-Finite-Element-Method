@@ -5,29 +5,33 @@ from cons_model import Corotated
 import numpy as np
 """Example 3*3 grid, mesh"""
 #   *-*-*
-#   6 - 7 - 8   6  -  7  -  8
-#   | / | / |   |  / /  /  |
-#   3 - 4 - 5   3 - 4 ----- 5
-#   | / | / |   | /  \   /  |
-#   0 - 1 - 2   0  -  1  -  2
+#   6 - 7 - 8       6  -  7  -  8
+#   | / | / |       |  / /  /  |
+#   3 - 4 - 5       3 - 4 ----- 5
+#   | / | / |       | /  \   /  |
+#   0 - 1 - 2       0  -  1  -  2
 
 N = 5
 d = 2
 dx = 1/(N-1)
 npt = N*N
-T = 1
+T = 2
 num_tpt = 10
-mu, lambd = 1,1
-g = np.array([0, -0.98])
+E, nu = 10, 0.3 # Young's modulus/Poisson's ratio
+mu, lambd = E/(2*(1+nu)), E*nu/((1+nu)*(1-2*nu))
+# mu, lambd = 1,1
+
+rho = 10
+# g = np.array([0, 10*-0.98])
 g = np.array([0, 0])
-config = grid_mesh.Config(N,d,dx,npt,T,num_tpt)
+config = grid_mesh.Config(N,d,dx,npt,T,num_tpt,rho=rho,mu=mu,lambd=lambd)
 grid = grid_mesh.create_grid(config)
 mesh = grid_mesh.create_mesh(config)
 dirichlet_bc = lambda x,y: x in [0,1] or y in [0,1]    # fix all boundary
 # dirichlet_bc = lambda x,y: x in [0,1]    # fix left/right boundary
 # dirichlet_bc = lambda x,y: False           # No dirichlet, Pure Neumann boundary
 dirichlet_mapping = lambda x,y: (2*x, y)
-# dirichlet_mapping = lambda x,y: (1.01*x, y)
+# dirichlet_mapping = lambda x,y: (x, y)
 # print(grid)
 # print(grid[0,:])
 # print(mesh.size)
@@ -80,8 +84,8 @@ def test_e_f_Df():
     mesh = grid_mesh.create_mesh(config)
     dirichlet_bc = lambda x, y: x in [0, 1] or y in [0, 1]  # fix all boundary
     dirichlet_mapping = lambda x, y: (2 * x, y)
-    direction = np.array([0.1,1])
-    direction_F = np.array([[1,0.1],[0.1,1]])
+    direction = np.random.rand(2)
+    direction_F = np.random.rand(2,2)
     eps = 0.1
     epsilon = [eps]
     iter = 5
@@ -113,8 +117,7 @@ def test_e_f_Df():
         force_minus = efem.internal_force()
         error_ef.append(-(energy_plus-energy_minus)/2/epsilon[i]-f.dot(direction))
         error_fDf.append(np.linalg.norm((force_plus-force_minus)/2/epsilon[i]- Df.dot(direction)))
-        error_fDf.append(np.linalg.norm((force_plus-force_minus)/2/epsilon[i]- Df.dot(direction)))
-        print((force_plus-force_minus)/2, del_f(epsilon[i]*direction))
+        # print((force_plus-force_minus)/2, del_f(epsilon[i]*direction))
     print("error e vs.f\n", error_ef)
     print("error f vs.Df\n", error_fDf)
 

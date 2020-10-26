@@ -91,12 +91,11 @@ class efem:
             for i in range(d+1):
                 mass = self.vol[e]*rho/(d+1)
                 self.nodalmass[self.mesh[(d+1)*e+i]] += mass
-
-        self.M = np.zeros((d*len(self.non_dirichlet_pts),d*len(self.non_dirichlet_pts)))
+        self.M = np.zeros((d*self.num_inside_pts,d*self.num_inside_pts))
         for i in range(self.num_inside_pts):
             index = self.non_dirichlet_pts[i]
             for j in range(d):
-                self.M[i+j,i+j] = self.nodalmass[index]
+                self.M[i*d+j,i*d+j] = self.nodalmass[index]
 
     def initialize_gravity(self):
         d, num_inside_pts = self.config.d, self.num_inside_pts
@@ -121,9 +120,8 @@ class efem:
         v = np.zeros(d*num_inside_pts)
         for i in range(num_inside_pts):
             phi[i*d: (i+1)*d] = self.deformed_grid[self.non_dirichlet_pts[i], :]
-        self.deformed_to_obj("output/frame_1.obj")
+        self.deformed_to_obj("output/frame_0.obj")
         # solve for phi_1
-
         # print("Initial BE energy =", self.BE_energy(phi_1, phi_0, v_0))
         # print("Initial energy =", self.config.dt ** 2 * self.energy())
         for timestep in range(self.config.num_tpt):
@@ -131,11 +129,11 @@ class efem:
             # g = lambda phi: self.M.dot(phi) - 2*self.M.dot(phi_1) + self.M.dot(phi_0) - dt*dt*self.external_force(phi)
             phi, v = self.advance_one_step(phi, v, verbose, timestep)
             # print(f"phi = {phi}, v = {v}")
-            self.deformed_to_obj(f"output/frame_{timestep+2}.obj")
+            self.deformed_to_obj(f"output/frame_{timestep+1}.obj")
             # self.deformed_to_geo(f"frame_{timestep+2}.vtk")
 
 
-    def advance_one_step(self, phi_prev, v_prev, verbose, timestep, tol_newton = 10e-5, tol_cg = 10e-4):
+    def advance_one_step(self, phi_prev, v_prev, verbose, timestep, tol_newton = 10e-6, tol_cg = 10e-4):
         dt = self.config.dt
         dim = self.num_inside_pts*self.config.d
         tol_newton *= dt**2
@@ -144,10 +142,8 @@ class efem:
         # print(self.internal_force())
         g = lambda phi: self.M.dot(phi) - dt*dt*self.internal_force() + const
         Dg = lambda phi: self.M - dt*dt*self.Df()   # returns matrix size dim*dim
-
-
         phi = np.copy(phi_prev)
-        max_iter = 20
+        max_iter = 100
         iter = 0
         self.update_phi(phi)
         self.updateDs_F()
@@ -155,9 +151,7 @@ class efem:
             # Df_fast = self.del_f()
             # Dg_fast1 = lambda phi: self.M.dot(phi) - dt * dt * Df_fast(phi)
             # Dg_fast = LinearOperator((dim, dim), matvec=Dg_fast1)
-
             dphi, res = cg(Dg(phi), -g(phi))
-
             # dphi, res = cg(Dg_fast, -g(phi))
 
             phi += dphi
