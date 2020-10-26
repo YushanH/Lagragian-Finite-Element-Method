@@ -1,5 +1,5 @@
 import pygmsh
-
+from py2gmsh import Mesh, Entity
 def writeGEO(grid, mesh, filename):
     """Example: grid = np.array([[0,0],[0.5,0.5],[0,0.5]]), mesh = np.array([1,4,3])"""
     # with pygmsh.geo.Geometry() as geom:

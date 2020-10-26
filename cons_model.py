@@ -40,13 +40,15 @@ class Corotated:
         dJdF = np.array([F22,-F21,-F12,F11])
 
         # return ans
-        return ans-2*self.mu/(s0+s1)*dRdF+self.lambd*np.outer(dJdF,dJdF)
+        return ans-2*self.mu/(s0+s1)*dRdF+self.lambd*np.outer(dJdF, dJdF)
 
     def dP(self, dF):
         dR = polar(self.F+dF)[0]-self.R
-        JFTinv = self.J*np.linalg.inv(self.F).transpose()
+        # JFTinv = self.J*np.linalg.inv(self.F).transpose()
+
+        JFTinv = np.array([[self.F[1,1], -self.F[1,0]], [-self.F[0,1], self.F[0,0]]])
         dJFTinv = np.array([[dF[1,1], -dF[1,0]], [-dF[0,1], dF[0,0]]])
-        return 2*self.mu*(dF-dR) + self.lambd*self.J*self.J*JFTinv*np.tensordot(JFTinv,dF)+ self.lambd*(self.J-1)*dJFTinv
+        return 2*self.mu*(dF-dR) + self.lambd*JFTinv*np.tensordot(JFTinv,dF)+ self.lambd*(self.J-1)*dJFTinv
 
 if __name__ == "__main__":
     # Test P ~ dPdF

@@ -2,24 +2,27 @@ import numpy as np
 import math
 import pymesh
 import grid_mesh
-from scipy.sparse.linalg import cg
+from scipy.sparse.linalg import cg, LinearOperator
 from cons_model import Corotated
 from GEO import writeGEO
 class efem:
-    def __init__(self, config, grid, mesh, dirichlet_bc, dirichlet_mapping):
+    def __init__(self, config, grid, mesh, dirichlet_bc, dirichlet_mapping, g):
         self.config = config
         self.grid = np.copy(grid)
         self.deformed_grid = np.copy(grid)
         self.mesh = np.copy(mesh)
         self.incident_element = grid_mesh.incident_element(config, grid, mesh)
-        self.faces = np.reshape(mesh, (-1,3))
-        self.Ne = mesh.size//3
+        self.faces = np.reshape(mesh, (-1,config.d+1))
+        self.Ne = mesh.size//(config.d+1)
         self.F = np.zeros((self.Ne, config.d, config.d))
         self.dirchlet_bc = dirichlet_bc
         self.dirichlet_mapping = dirichlet_mapping
+        self.g = g
         self.initialize()
         self.initialize_nodalmass()
+        self.initialize_gravity()
         self.initalize_interpolant_gradient()
+
         # self.dirchlet_pts
         # self.non_dirichlet_pts
         # self.nodalmass
@@ -76,6 +79,7 @@ class efem:
             self.deformed_grid[i,:] = self.dirichlet_mapping(x,y)
         # x, y = self.grid[4, :]
         # self.deformed_grid[4, :] = [1,0.5]
+        self.updateDs_F()
 
     def initialize_nodalmass(self):
         """grid point i, nodalmass[i] = mass matrix M_ii, after mass lumping"""
@@ -85,7 +89,7 @@ class efem:
         self.nodalmass = np.zeros(npt)
         for e in range(self.mesh.size//(d+1)):
             for i in range(d+1):
-                mass = self.vol[e]*rho/3
+                mass = self.vol[e]*rho/(d+1)
                 self.nodalmass[self.mesh[(d+1)*e+i]] += mass
 
         self.M = np.zeros((d*len(self.non_dirichlet_pts),d*len(self.non_dirichlet_pts)))
@@ -93,6 +97,14 @@ class efem:
             index = self.non_dirichlet_pts[i]
             for j in range(d):
                 self.M[i+j,i+j] = self.nodalmass[index]
+
+    def initialize_gravity(self):
+        d, num_inside_pts = self.config.d, self.num_inside_pts
+        f = np.zeros(d * num_inside_pts)
+        for vectori,i in enumerate(self.non_dirichlet_pts):
+            for beta in range(d):
+                f[d*vectori+beta] += self.g[beta]*self.nodalmass[i]
+        self.gravity_force = f
 
     def initalize_interpolant_gradient(self):
         d = self.config.d
@@ -109,7 +121,7 @@ class efem:
         v = np.zeros(d*num_inside_pts)
         for i in range(num_inside_pts):
             phi[i*d: (i+1)*d] = self.deformed_grid[self.non_dirichlet_pts[i], :]
-        self.deformed_to_obj("frame_1.obj")
+        self.deformed_to_obj("output/frame_1.obj")
         # solve for phi_1
 
         # print("Initial BE energy =", self.BE_energy(phi_1, phi_0, v_0))
@@ -117,41 +129,49 @@ class efem:
         for timestep in range(self.config.num_tpt):
             # given phi_(n-1), phi_n, find phi_(n+1) s.t. g(phi_(n+1)) = 0 using newton's method
             # g = lambda phi: self.M.dot(phi) - 2*self.M.dot(phi_1) + self.M.dot(phi_0) - dt*dt*self.external_force(phi)
-            phi, v = np.copy(self.advance_one_step(phi, v, verbose))
+            phi, v = self.advance_one_step(phi, v, verbose, timestep)
             # print(f"phi = {phi}, v = {v}")
-
-            self.deformed_to_obj(f"frame_{timestep+2}.obj")
+            self.deformed_to_obj(f"output/frame_{timestep+2}.obj")
             # self.deformed_to_geo(f"frame_{timestep+2}.vtk")
 
 
-    def advance_one_step(self, phi_prev, v_prev, verbose, tol_newton = 10e-5, tol_cg = 10e-4):
+    def advance_one_step(self, phi_prev, v_prev, verbose, timestep, tol_newton = 10e-5, tol_cg = 10e-4):
         dt = self.config.dt
+        dim = self.num_inside_pts*self.config.d
         tol_newton *= dt**2
         const = - self.M.dot(phi_prev) - dt*self.M.dot(v_prev)
         # print(self.deformed_grid)
         # print(self.internal_force())
         g = lambda phi: self.M.dot(phi) - dt*dt*self.internal_force() + const
-        Dg = lambda phi: self.M - dt*dt*self.Df()
-        phi = np.copy(phi_prev)
-        max_iter = 100
-        iter = 0
-        while np.linalg.norm(g(phi)) > tol_newton and iter < max_iter:
-            self.update_phi(phi)
-            self.updateDs_F()
-            dphi, res = cg(Dg(phi), -g(phi))
-            phi += dphi
+        Dg = lambda phi: self.M - dt*dt*self.Df()   # returns matrix size dim*dim
 
+
+        phi = np.copy(phi_prev)
+        max_iter = 20
+        iter = 0
+        self.update_phi(phi)
+        self.updateDs_F()
+        while np.linalg.norm(g(phi)) > tol_newton and iter < max_iter:
+            # Df_fast = self.del_f()
+            # Dg_fast1 = lambda phi: self.M.dot(phi) - dt * dt * Df_fast(phi)
+            # Dg_fast = LinearOperator((dim, dim), matvec=Dg_fast1)
+
+            dphi, res = cg(Dg(phi), -g(phi))
+
+            # dphi, res = cg(Dg_fast, -g(phi))
+
+            phi += dphi
             iter += 1
             # print(phi)
             # print("BE energy =", self.BE_energy(phi, phi_1, phi_0))
             # print("cg residual =", res)
             # print("residual g =", np.linalg.norm(g(phi)), "internal force =", dt * dt * self.internal_force())
-        self.update_phi(phi)
-        self.updateDs_F()
+            self.update_phi(phi)
+            self.updateDs_F()
         if verbose:
-            print("after newton, BE energy =", self.BE_energy(phi, phi_prev, v_prev))
-            print("after newton, energy =", self.config.dt**2*self.energy())
-            print("after newton, residual g =", np.linalg.norm(g(phi)))
+            print(f"Newton iter {timestep}, BE energy =", self.BE_energy(phi, phi_prev, v_prev))
+            print(f"Newton iter {timestep}, energy =", self.config.dt**2*self.energy())
+            print(f"Newton iter {timestep}, residual g =", np.linalg.norm(g(phi)))
         return phi, (phi-phi_prev)/dt
 
     def internal_force(self):
@@ -170,6 +190,8 @@ class efem:
                     for beta in range(d):
                         for gamma in range(d):
                             f[d*vectori+beta] -= self.vol[e]*P[beta,gamma]*self.grad_N[(d+1)*e+p, gamma]
+        # Add gravity
+        f += self.gravity_force
         return f
 
     def Df(self):
@@ -196,6 +218,46 @@ class efem:
                                         df_dphi[vectori*d+beta, vectorj*d+alpha] -= \
                                             self.vol[e]*dPdF[beta*d+gamma, alpha*d+epsilon]*self.grad_N[mesh_j,epsilon]*self.grad_N[mesh_i,gamma]
         return df_dphi
+
+    def del_f(self):
+        """Blackbox function for CG"""
+        d = self.config.d
+        dP_function_list = []
+        for e in range(self.Ne):
+            model = Corotated(self.config.mu, self.config.lambd, self.F[e, :, :])
+            dP_function_list.append(model.dP)
+        def calculate_del_f(del_phi):
+            ans = np.zeros(self.num_inside_pts*d)
+            del_F_vector = self.del_F(del_phi)
+            for e in range(self.Ne):
+                dP = dP_function_list[e](del_F_vector[e])
+                for p in range(d + 1):
+                    i = self.mesh[(d+1)*e+p]
+                    vectori = self.i_to_vectori[i]
+                    if vectori != None:
+                        for beta in range(d):
+                            for gamma in range(d):
+                                ans[d*vectori+beta] -= self.vol[e] * dP[beta, gamma] * self.grad_N[(d+1)*e+p,gamma]
+            return ans
+        df = LinearOperator((self.num_inside_pts*d,self.num_inside_pts*d), matvec=calculate_del_f)
+        return df
+
+    def del_F(self, del_phi):
+        """calculates del_F (difference in F) with del_phi"""
+        """For 3*3 left/right dirichlet BC, del_phi = [d1,d4,d7]"""
+        d = self.config.d
+        result = np.zeros((self.Ne,d,d))
+        for e in range(self.Ne):
+            dDs = np.zeros((d,d))
+            i0 = self.i_to_vectori[self.mesh[(d+1)*e]]
+            dx0 = del_phi[d*i0:d*i0+d] if i0 != None else np.zeros(d)
+            for j in range(1,d+1):
+                i = self.i_to_vectori[self.mesh[(d+1)*e+j]]
+                dDs[:,j-1] -= dx0
+                if i != None:
+                    dDs[:,j-1] += del_phi[d*i:d*i+d]
+            result[e,:,:] = dDs.dot(self.Dminv[e])
+        return result
 
     def update_phi(self, phi):
         """updates self.deformed_grid based on phi"""
