@@ -1,3 +1,5 @@
+# import sys
+# print(sys.executable)
 import grid_mesh
 import elastic
 import time
@@ -11,12 +13,12 @@ import numpy as np
 #   | / | / |       | /  \   /  |
 #   0 - 1 - 2       0  -  1  -  2
 
-N = 5
+N = 10
 d = 2
 dx = 1/(N-1)
 npt = N*N
-T = 2
-num_tpt = 10
+T = 5
+num_tpt = 50
 E, nu = 10, 0.3 # Young's modulus/Poisson's ratio
 mu, lambd = E/(2*(1+nu)), E*nu/((1+nu)*(1-2*nu))
 # mu, lambd = 1,1

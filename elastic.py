@@ -1,10 +1,11 @@
 import numpy as np
 import math
-import pymesh
+# import pymesh
 import grid_mesh
 from scipy.sparse.linalg import cg, LinearOperator
 from cons_model import Corotated
-from GEO import writeGEO
+# from GEO import writeGEO
+from filewriting import writeOBJ
 class efem:
     def __init__(self, config, grid, mesh, dirichlet_bc, dirichlet_mapping, g):
         self.config = config
@@ -284,9 +285,9 @@ class efem:
 
     def deformed_to_obj(self, filename):
         deformed = np.append(self.deformed_grid, np.zeros((self.config.npt,1)), 1)
+    # pymesh.meshio.save_mesh(filename, pymesh.form_mesh(deformed, self.faces))
+        writeOBJ(filename, deformed, self.faces)
 
-        pymesh.save_mesh(filename, pymesh.form_mesh(deformed, self.faces))
-
-    def deformed_to_geo(self, filename):
-        deformed = np.append(self.deformed_grid, np.zeros((self.config.npt,1)), 1)
-        writeGEO(deformed, self.mesh, filename)
+    # def deformed_to_geo(self, filename):
+    #     deformed = np.append(self.deformed_grid, np.zeros((self.config.npt,1)), 1)
+    #     writeGEO(deformed, self.mesh, filename)
